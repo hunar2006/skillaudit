@@ -25,12 +25,13 @@ class Skill:
     frontmatter: dict
     text: str  # full SKILL.md
     body: str  # SKILL.md without frontmatter
-    files: dict  # relative posix path -> bytes (CRLF normalized)
+    files: dict  # relative posix path -> bytes (CRLF normalized, for comparing and scanning)
     warnings: list = field(default_factory=list)
     shadowed_by: str | None = None
     plugin: tuple | None = None  # (name, version, plugin root) from the owning plugin's manifest
     duplicates: list = field(default_factory=list)  # other installs of the same plugin: (version, root)
     executable: set = field(default_factory=set)  # files with an executable bit (POSIX only)
+    raw: dict = field(default_factory=dict)  # same files, bytes exactly as on disk (git hashes these)
 
 
 def split_frontmatter(text):
@@ -55,7 +56,7 @@ def split_frontmatter(text):
 
 
 def load_skill(d: Path, scope: str) -> Skill:
-    files, warnings, executable = {}, [], set()
+    files, raw, warnings, executable = {}, {}, [], set()
     for root, dirs, names in os.walk(d):
         dirs[:] = sorted(x for x in dirs if x not in SKILL_JUNK_DIRS)
         for n in sorted(names):
@@ -69,6 +70,7 @@ def load_skill(d: Path, scope: str) -> Skill:
                 warnings.append(f"cannot read {p}: {e.strerror}")
                 continue
             rel = p.relative_to(d).as_posix()
+            raw[rel] = data
             # Normalize line endings so a Windows checkout still matches upstream byte for byte.
             files[rel] = data.replace(b"\r\n", b"\n")
             if os.name == "posix" and os.stat(p).st_mode & 0o111:
@@ -78,7 +80,7 @@ def load_skill(d: Path, scope: str) -> Skill:
     if warn:
         warnings.append(warn)
     name = str(fm.get("name") or d.name)
-    return Skill(name, scope, d, fm, text, body, files, warnings, executable=executable)
+    return Skill(name, scope, d, fm, text, body, files, warnings, executable=executable, raw=raw)
 
 
 def plugin_manifest(skill_dir: Path):

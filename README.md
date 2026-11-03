@@ -49,7 +49,7 @@ skillaudit scan --fail-on high     # exit 1 on new high or critical findings (CI
 skillaudit catalog                 # what the tool compares against
 ```
 
-Without installing: `python -m skillaudit scan`. Tests: `pip install pytest && pytest` (14 tests).
+Without installing: `python -m skillaudit scan`. Tests: `pip install pytest && pytest` (15 tests).
 
 ## How it works
 
@@ -123,7 +123,7 @@ This covers three items of the [OWASP Agentic Skills Top 10](https://owasp.org/w
 
 Run on a real Windows machine with 43 skills across personal, plugin and project scopes:
 
-* 10 skills installed with `npx skills add` from four different repos: **9 verified intact, 1 edited after install**, all offline. That edit is real; nothing else could have told the owner.
+* 10 skills installed with `npx skills add` from five different repos, all checked offline against the lock file. The first run reported **9 intact, 1 edited**. Tracing the "edit" to upstream commit `4762027` showed the skill was untouched: it ships files with CRLF line endings, and the tool normalized line endings before hashing while git hashes bytes as committed. Fix: hash the raw bytes and the normalized bytes (the latter covers a Windows checkout that rewrote line endings), plus a regression test (`test_install_with_crlf_files_is_intact`). Now **10 of 10 verified intact**.
 * The same plugin installed twice (marketplace v4.8.4, claude.ai sync v5.3.3), both loading.
 * A personal skill with malformed frontmatter, which Claude Code loads with empty metadata, so it never auto triggers.
 * The first version of the prose rules produced 4 findings, and all 4 were false positives ("never ask the user", a `# CLAUDE.md` heading, a `.env` mention in an upload policy). The rules were split into code versus markdown variants and the exact lines became a regression test (`test_real_world_prose_is_not_flagged`). After that, the real machine reports no findings, while every demo threat still fires.

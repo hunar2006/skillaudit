@@ -37,11 +37,13 @@ def candidate_hashes(skill) -> list[str]:
     """Tree hashes under each plausible guess of which files are executable.
 
     Windows has no executable bit, so besides the real mode bits (POSIX) we try "files starting with #!"
-    (matches every executable script in anthropics/skills) and "nothing executable".
+    (matches every executable script in anthropics/skills) and "nothing executable", for both byte variants.
     """
     shebang = frozenset(p for p, d in skill.files.items() if d.startswith(b"#!"))
     guesses = [frozenset(skill.executable), shebang, frozenset()]
-    return list(dict.fromkeys(tree_hash(skill.files, g) for g in guesses))
+    # Bytes as on disk first (upstream files may legitimately contain CRLF), then LF normalized
+    # (a Windows git checkout with autocrlf rewrites line endings without anyone editing anything).
+    return list(dict.fromkeys(tree_hash(files, g) for files in (skill.raw, skill.files) for g in guesses))
 
 
 def load_lock(home: Path) -> dict:
