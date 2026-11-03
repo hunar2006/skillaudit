@@ -86,8 +86,12 @@ def short(path):
     p = Path(path).resolve()
     for base, prefix in ((Path.cwd().resolve(), ""), (Path.home().resolve(), "~/")):
         if p.is_relative_to(base):
-            return prefix + p.relative_to(base).as_posix()
-    return p.as_posix()
+            text = prefix + p.relative_to(base).as_posix()
+            break
+    else:
+        text = p.as_posix()
+    # long generated ids (synced plugin dirs, agent uuids) make the table unreadable; JSON keeps full paths
+    return "/".join(seg if len(seg) <= 24 else seg[:10] + "..." + seg[-6:] for seg in text.split("/"))
 
 
 def lineage_label(r):

@@ -24,8 +24,13 @@ class Finding:
         return (self.rule, " ".join(self.evidence.split()))
 
 
+_SECRETS = (r"~/\.ssh\b|\.ssh/(id_|authorized_keys)|\bid_(rsa|ed25519|ecdsa)\b|\.aws/credentials|~/\.aws\b"
+            r"|\.git-credentials|\.netrc\b|\.npmrc\b|\.pypirc\b|\bprintenv\b")
+_PERSIST = (r"authorized_keys|\.(bash|zsh)rc\b|\.bash_profile\b|\bcrontab\b|LaunchAgents|\.git/hooks"
+            r"|\.claude/settings(\.local)?\.json|\b(CLAUDE|MEMORY)\.md\b")
+
 # (rule id, severity, where it applies, pattern, why it matters)
-# where: "skill_md" = SKILL.md only, "code" = non markdown files, "text" = every text file
+# where: "skill_md" = SKILL.md only, "md" = markdown, "code" = non markdown files, "text" = every text file
 LINE_RULES = [
     ("SHELL_INJECTION", "critical", "skill_md",
      re.compile(r"(?:^|(?<=\s))!`[^`\n]+`|^\s*```!"),
@@ -44,17 +49,18 @@ LINE_RULES = [
     ("HIDDEN_UNICODE", "high", "text", INVISIBLE,
      "invisible or bidi control characters can hide instructions from a human reviewer"),
     ("DECEPTIVE_PROSE", "high", "text",
-     re.compile(r"\b(do\s*n[o']?t|never|without)\s+(tell|mention|inform|reveal|notify|alert|ask)\w*\b[^.\n]{0,40}"
+     re.compile(r"\b(do\s*n[o']?t|never|without)\s+(tell|mention|inform|reveal|notify|alert)\w*\b[^.\n]{0,40}"
                 r"\b(the\s+)?(user|human)\b|\bignore\s+(all\s+)?(previous|prior|above)\s+instructions", re.I),
      "instructs the agent to hide what it does from the user"),
-    ("SENSITIVE_PATH", "medium", "text",
-     re.compile(r"~/\.ssh\b|\.ssh/(id_|authorized_keys)|\bid_(rsa|ed25519|ecdsa)\b|\.aws/credentials|~/\.aws\b"
-                r"|\.git-credentials|\.netrc\b|\.npmrc\b|\.pypirc\b|\bprintenv\b|(?<![\w.])\.env\b"),
-     "touches credentials or secret files"),
-    ("PERSISTENCE_TARGET", "medium", "text",
-     re.compile(r"authorized_keys|\.(bash|zsh)rc\b|\.bash_profile\b|\bcrontab\b|LaunchAgents|\.git/hooks"
-                r"|\.claude/settings(\.local)?\.json|\b(CLAUDE|MEMORY)\.md\b"),
+    # Secret and persistence files are named in harmless prose all the time ("never commit .env", "# CLAUDE.md"),
+    # so in markdown they only count without .env, or next to a write verb; in code any mention counts.
+    ("SENSITIVE_PATH", "medium", "code", re.compile(_SECRETS + r"|(?<![\w.])\.env\b"), "touches credentials or secret files"),
+    ("SENSITIVE_PATH", "medium", "md", re.compile(_SECRETS), "touches credentials or secret files"),
+    ("PERSISTENCE_TARGET", "medium", "code", re.compile(_PERSIST),
      "names a file that persists across sessions (shell rc, agent memory or settings, cron, ssh keys)"),
+    ("PERSISTENCE_TARGET", "medium", "md",
+     re.compile(r"(>>?|\b(append|write|add|echo|tee|insert|overwrite|modify)\w*\b)[^\n]{0,60}(" + _PERSIST + ")", re.I),
+     "tells the agent to write to a file that persists across sessions (shell rc, agent memory or settings, cron)"),
 ]
 
 # What each rule says the skill can do. Capabilities, not line matches, are the unit a reviewer reasons about.
@@ -103,7 +109,7 @@ def scan(skill: Skill) -> list[Finding]:
             continue
         is_md = rel.lower().endswith(".md")
         for rule, sev, where, pat, why in LINE_RULES:
-            if (where == "skill_md" and rel != "SKILL.md") or (where == "code" and is_md):
+            if (where == "skill_md" and rel != "SKILL.md") or (where == "code" and is_md) or (where == "md" and not is_md):
                 continue
             for n, line in enumerate(text.splitlines(), 1):
                 if pat.search(line):

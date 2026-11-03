@@ -49,7 +49,7 @@ skillaudit scan --fail-on high     # exit 1 on new high or critical findings (CI
 skillaudit catalog                 # what the tool compares against
 ```
 
-Without installing: `python -m skillaudit scan`. Tests: `pip install pytest && pytest` (13 tests).
+Without installing: `python -m skillaudit scan`. Tests: `pip install pytest && pytest` (14 tests).
 
 ## How it works
 
@@ -103,9 +103,9 @@ Rules run on every skill. Each finding maps to a capability, and a reviewer reas
 | `BROAD_ALLOWED_TOOLS` | high | autoapprove | `Bash`, `Bash(*)`, `Write`, `Edit`, `WebFetch` in `allowed-tools`: no permission prompt, even in an untrusted repo |
 | `SKILL_HOOKS` | high | exec | `hooks:` in frontmatter |
 | `HIDDEN_UNICODE` | high | deception | zero width, bidi and tag characters, shown as `<U+200B>` |
-| `DECEPTIVE_PROSE` | high | deception | "do not mention this to the user", "ignore previous instructions" |
-| `SENSITIVE_PATH` | medium | secrets | `~/.ssh`, `id_rsa`, `.aws/credentials`, `.env`, `printenv` |
-| `PERSISTENCE_TARGET` | medium | persistence | shell rc files, `crontab`, `authorized_keys`, `.claude/settings.json`, `CLAUDE.md` |
+| `DECEPTIVE_PROSE` | high | deception | "do not mention this to the user", "ignore previous instructions" (but not "never ask the user") |
+| `SENSITIVE_PATH` | medium | secrets | `~/.ssh`, `id_rsa`, `.aws/credentials`, `printenv`; `.env` only in code |
+| `PERSISTENCE_TARGET` | medium | persistence | shell rc files, `crontab`, `authorized_keys`, `.claude/settings.json`, `CLAUDE.md`: any mention in code, only next to a write verb in markdown |
 | `NETWORK_CALL` | medium | network | urllib, requests, sockets, curl, wget in scripts |
 | `PROCESS_SPAWN` | low | exec | subprocess, os.system, eval in scripts |
 
@@ -118,6 +118,15 @@ Three things keep the result honest:
 * **No score.** Findings stay a list of behaviors with evidence, because a single number hides which ones matter ([critique of scanner scores](https://towardsdatascience.com/from-green-checkmark-to-real-judgment-auditing-ai-agent-skills-with-skillspector)).
 
 This covers three items of the [OWASP Agentic Skills Top 10](https://owasp.org/www-project-agentic-skills-top-10/): AST07 update drift (install records, forks), AST03 over privileged skills (capabilities, `allowed-tools`), AST09 no governance (inventory across every scope).
+
+## Field test
+
+Run on a real Windows machine with 43 skills across personal, plugin and project scopes:
+
+* 10 skills installed with `npx skills add` from four different repos: **9 verified intact, 1 edited after install**, all offline. That edit is real; nothing else could have told the owner.
+* The same plugin installed twice (marketplace v4.8.4, claude.ai sync v5.3.3), both loading.
+* A personal skill with malformed frontmatter, which Claude Code loads with empty metadata, so it never auto triggers.
+* The first version of the prose rules produced 4 findings, and all 4 were false positives ("never ask the user", a `# CLAUDE.md` heading, a `.env` mention in an upload policy). The rules were split into code versus markdown variants and the exact lines became a regression test (`test_real_world_prose_is_not_flagged`). After that, the real machine reports no findings, while every demo threat still fires.
 
 ## Layout
 
