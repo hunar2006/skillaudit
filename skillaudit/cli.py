@@ -52,6 +52,15 @@ def to_json(manifest, results):
     return {"catalog": {"repo": manifest["repo"], "sha": manifest["sha"]}, "skills": out}
 
 
+def short(path):
+    """Shortest readable location: relative to cwd, else ~ for home, else absolute."""
+    p = Path(path).resolve()
+    for base, prefix in ((Path.cwd().resolve(), ""), (Path.home().resolve(), "~/")):
+        if p.is_relative_to(base):
+            return prefix + p.relative_to(base).as_posix()
+    return p.as_posix()
+
+
 def lineage_label(lin):
     if lin.state == "custom":
         return c("custom", "custom"), len("custom")
@@ -79,16 +88,17 @@ def print_table(manifest, results, show_all):
         if weaker:
             notes.append(f"shadows {'/'.join(weaker)} copy: bare /{s.name} runs this one")
         notes += s.warnings
-        rows.append((s.scope, s.name, lineage_label(lin), risk, "; ".join(notes)))
+        rows.append((s.scope, s.name, lineage_label(lin), risk, short(s.path), "; ".join(notes)))
 
     w_scope = max(5, *(len(r[0]) for r in rows))
     w_name = max(5, *(len(r[1]) for r in rows))
     w_lin = max(7, *(r[2][1] for r in rows))
     print()
-    print(c(f"{'SCOPE':<{w_scope}}  {'SKILL':<{w_name}}  {'LINEAGE':<{w_lin}}  {'RISK':<8}  NOTES", "dim"))
-    for scope, name, (lin_txt, lin_len), risk, notes in rows:
+    w_path = max(5, *(len(r[4]) for r in rows))
+    print(c(f"{'SCOPE':<{w_scope}}  {'SKILL':<{w_name}}  {'LINEAGE':<{w_lin}}  {'RISK':<8}  {'WHERE':<{w_path}}  NOTES", "dim"))
+    for scope, name, (lin_txt, lin_len), risk, where, notes in rows:
         pad = " " * (w_lin - lin_len)
-        print(f"{scope:<{w_scope}}  {name:<{w_name}}  {lin_txt}{pad}  {c(f'{risk.upper():<8}', risk)}  {notes}")
+        print(f"{scope:<{w_scope}}  {name:<{w_name}}  {lin_txt}{pad}  {c(f'{risk.upper():<8}', risk)}  {where:<{w_path}}  {notes}".rstrip())
 
     findings = [(s, lin, f) for s, lin, found in results for f in found if show_all or not f.inherited]
     inherited = sum(1 for _, _, found in results for f in found if f.inherited)
@@ -99,7 +109,7 @@ def print_table(manifest, results, show_all):
     findings.sort(key=lambda t: -rules.SEVERITY[t[2].severity])
     for s, lin, f in findings:
         tag = "inherited" if f.inherited else ("added in fork" if lin.state == "modified" else "")
-        print(f"  {c(f'{f.severity.upper():<8}', f.severity)}  {f.rule:<19}  {s.scope}/{s.name}  {f.file}:{f.line}"
+        print(f"  {c(f'{f.severity.upper():<8}', f.severity)}  {f.rule:<19}  {short(s.path)}/{f.file}:{f.line}"
               + (c(f"  [{tag}]", "dim") if tag else ""))
         print(f"            {f.evidence}")
         print(c(f"            {f.why}", "dim"))
