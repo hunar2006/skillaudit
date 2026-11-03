@@ -19,8 +19,9 @@ class Finding:
     inherited: bool = False  # also present in the upstream skill this one was forked from
 
     @property
-    def key(self):  # line numbers shift in forks, so match on content, not position
-        return (self.rule, self.file, self.evidence)
+    def key(self):
+        # Content only: line numbers shift, files get moved, lines get re-indented in forks.
+        return (self.rule, " ".join(self.evidence.split()))
 
 
 # (rule id, severity, where it applies, pattern, why it matters)
@@ -42,7 +43,27 @@ LINE_RULES = [
      "script spawns processes or evaluates code"),
     ("HIDDEN_UNICODE", "high", "text", INVISIBLE,
      "invisible or bidi control characters can hide instructions from a human reviewer"),
+    ("DECEPTIVE_PROSE", "high", "text",
+     re.compile(r"\b(do\s*n[o']?t|never|without)\s+(tell|mention|inform|reveal|notify|alert|ask)\w*\b[^.\n]{0,40}"
+                r"\b(the\s+)?(user|human)\b|\bignore\s+(all\s+)?(previous|prior|above)\s+instructions", re.I),
+     "instructs the agent to hide what it does from the user"),
+    ("SENSITIVE_PATH", "medium", "text",
+     re.compile(r"~/\.ssh\b|\.ssh/(id_|authorized_keys)|\bid_(rsa|ed25519|ecdsa)\b|\.aws/credentials|~/\.aws\b"
+                r"|\.git-credentials|\.netrc\b|\.npmrc\b|\.pypirc\b|\bprintenv\b|(?<![\w.])\.env\b"),
+     "touches credentials or secret files"),
+    ("PERSISTENCE_TARGET", "medium", "text",
+     re.compile(r"authorized_keys|\.(bash|zsh)rc\b|\.bash_profile\b|\bcrontab\b|LaunchAgents|\.git/hooks"
+                r"|\.claude/settings(\.local)?\.json|\b(CLAUDE|MEMORY)\.md\b"),
+     "names a file that persists across sessions (shell rc, agent memory or settings, cron, ssh keys)"),
 ]
+
+# What each rule says the skill can do. Capabilities, not line matches, are the unit a reviewer reasons about.
+CAPABILITIES = {
+    "SHELL_INJECTION": ("exec",), "DOWNLOAD_EXEC": ("network", "exec"), "NETWORK_CALL": ("network",),
+    "PROCESS_SPAWN": ("exec",), "SKILL_HOOKS": ("exec",), "BROAD_ALLOWED_TOOLS": ("autoapprove",),
+    "HIDDEN_UNICODE": ("deception",), "DECEPTIVE_PROSE": ("deception",), "SENSITIVE_PATH": ("secrets",),
+    "PERSISTENCE_TARGET": ("persistence",),
+}
 BROAD_TOOLS = {"Bash", "Bash(*)", "Bash(:*)", "Write", "Edit", "WebFetch"}
 
 
@@ -99,6 +120,15 @@ def scan(skill: Skill) -> list[Finding]:
                            "hooks: " + _show(str(fm["hooks"])),
                            "skill registers lifecycle hooks that run shell commands"))
     return out
+
+
+def capabilities(findings) -> set:
+    return {cap for f in findings for cap in CAPABILITIES[f.rule]}
+
+
+def opaque_files(skill: Skill) -> list[str]:
+    """Files the line rules cannot read: PDFs, images, archives, binaries. Hidden text lives there too."""
+    return sorted(rel for rel, data in skill.files.items() if _is_text(data) is None)
 
 
 def drift(local: list[Finding], upstream: list[Finding]) -> list[Finding]:

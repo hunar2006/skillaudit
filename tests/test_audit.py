@@ -10,6 +10,8 @@ from build_demo import build  # noqa: E402
 from skillaudit import cli  # noqa: E402
 from skillaudit.discover import load_skill, split_frontmatter  # noqa: E402
 from skillaudit.lineage import CATALOG_DIR, load_catalog, correlate  # noqa: E402
+from skillaudit.provenance import candidate_hashes  # noqa: E402
+from skillaudit import rules  # noqa: E402
 
 
 @pytest.fixture(scope="module")
@@ -38,6 +40,8 @@ def test_lineage_states(demo, capsys):
         ("personal", "release-notes"): "custom",  # ships upstream's LICENSE, still custom
         ("project", "aws-helper"): "custom",
         ("plugin", "web-artifacts-builder"): "unmodified",
+        ("personal", "commit-helper"): "custom",  # not in the catalog; origin comes from the lock file instead
+        ("personal", "standup-notes"): "custom",
     }
     fork = skills[("personal", "webapp-testing")]["lineage"]
     assert fork["added"] == ["scripts/update_check.py"] and fork["changed"] == ["SKILL.md"]
@@ -47,7 +51,9 @@ def test_lineage_states(demo, capsys):
 def test_risk_drift_only_reports_what_the_fork_added(demo, capsys):
     _, skills = run(demo, capsys)
     fork = skills[("personal", "webapp-testing")]
-    assert new_rules(fork) == {"SHELL_INJECTION", "DOWNLOAD_EXEC", "BROAD_ALLOWED_TOOLS", "NETWORK_CALL", "PROCESS_SPAWN"}
+    assert new_rules(fork) == {"SHELL_INJECTION", "DOWNLOAD_EXEC", "BROAD_ALLOWED_TOOLS", "NETWORK_CALL",
+                               "PROCESS_SPAWN", "SENSITIVE_PATH"}
+    assert fork["capabilities_gained"] == ["autoapprove", "network", "secrets"]  # exec was already upstream
     inherited = [f for f in fork["findings"] if f["inherited"]]
     assert inherited and all(f["file"] == "scripts/with_server.py" for f in inherited)
     # the clean upstream copy has the same subprocess calls but nothing new, so it is clean
@@ -57,7 +63,8 @@ def test_risk_drift_only_reports_what_the_fork_added(demo, capsys):
 
 def test_custom_skills_report_everything(demo, capsys):
     _, skills = run(demo, capsys)
-    assert new_rules(skills[("project", "aws-helper")]) == {"DOWNLOAD_EXEC", "HIDDEN_UNICODE", "SKILL_HOOKS"}
+    assert new_rules(skills[("project", "aws-helper")]) == {
+        "DOWNLOAD_EXEC", "HIDDEN_UNICODE", "SKILL_HOOKS", "DECEPTIVE_PROSE", "SENSITIVE_PATH"}
     assert skills[("personal", "release-notes")]["findings"] == []
 
 
@@ -103,3 +110,58 @@ def test_frontmatter_edge_cases(tmp_path):
     (d / "SKILL.md").write_text("---\n: : :\n---\n# hi\n", encoding="utf-8")
     s = load_skill(d, "personal")
     assert s.name == "broken" and s.warnings
+
+
+def test_tree_hash_matches_git():
+    # `git rev-parse ca45fc4:skills/<name>` in anthropics/skills; covers a binary tarball and executable scripts
+    expected = {"webapp-testing": "5ffb7dc66b9fd4c25c3e400a4c00da99a349b714",
+                "brand-guidelines": "1dc8bd3584b80568edae7da16382363e24ecf0f0",
+                "web-artifacts-builder": "821b94f16c123d5f12e4e72eda9f7a162e2698f6"}
+    for s in load_catalog()[1]:
+        assert expected[s.name] in candidate_hashes(s)
+
+
+def test_install_records_from_lock_file(demo, capsys):
+    _, skills = run(demo, capsys)
+    intact = skills[("personal", "commit-helper")]["install_record"]
+    edited = skills[("personal", "standup-notes")]["install_record"]
+    assert intact["source"] == "acme/agent-skills" and intact["intact"]
+    assert not edited["intact"] and edited["local_hash"] != edited["recorded_hash"]
+    assert skills[("personal", "release-notes")]["install_record"] is None
+    assert new_rules(skills[("personal", "standup-notes")]) == {"DECEPTIVE_PROSE", "SENSITIVE_PATH"}
+
+
+def test_drift_survives_reindent_and_move(tmp_path):
+    import shutil
+    d = tmp_path / "webapp-testing"
+    shutil.copytree(CATALOG_DIR / "webapp-testing", d)
+    src = d / "scripts" / "with_server.py"
+    (d / "helpers").mkdir()
+    src.rename(d / "helpers" / "server.py")  # moved, and every line re-indented
+    p = d / "helpers" / "server.py"
+    p.write_text("\n".join("    " + l for l in p.read_text(encoding="utf-8").splitlines()), encoding="utf-8")
+    _, catalog = load_catalog()
+    up = next(s for s in catalog if s.name == "webapp-testing")
+    found = rules.drift(rules.scan(load_skill(d, "personal")), rules.scan(up))
+    assert found and all(f.inherited for f in found)
+
+
+def test_opaque_files_listed_unless_identical_to_upstream(tmp_path, capsys):
+    import shutil
+    home = tmp_path / "home" / ".claude"
+    shutil.copytree(CATALOG_DIR / "web-artifacts-builder", home / "skills" / "web-artifacts-builder")
+    (home / "skills" / "web-artifacts-builder" / "guide.pdf").write_bytes(b"%PDF-1.4\0hidden")
+    cli.main(["scan", "--home", str(home), "--root", str(tmp_path / "none"), "--json"])
+    (s,) = json.loads(capsys.readouterr().out)["skills"]
+    assert s["unscanned_files"] == ["guide.pdf"]  # the upstream tarball is vouched for by lineage
+
+
+def test_shell_policy_downgrades_dynamic_context(demo, tmp_path, capsys):
+    import shutil
+    d = shutil.copytree(demo, tmp_path / "demo")
+    (d / "home/.claude/settings.json").write_text('{"disableSkillShellExecution": true}', encoding="utf-8")
+    cli.main(["scan", "--home", str(d / "home/.claude"), "--root", str(d / "repo"), "--json"])
+    report = json.loads(capsys.readouterr().out)
+    assert report["shell_execution_disabled_by"].endswith("settings.json")
+    fork = next(s for s in report["skills"] if s["scope"] == "personal" and s["name"] == "webapp-testing")
+    assert {f["severity"] for f in fork["findings"] if f["rule"] == "SHELL_INJECTION"} == {"low"}

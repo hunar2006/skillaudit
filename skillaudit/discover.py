@@ -13,6 +13,7 @@ PRIORITY = {"managed": 0, "personal": 1, "project": 2}
 PRUNE_DIRS = {".git", "node_modules", ".venv", "venv", "__pycache__", ".trash", ".tox", "dist", "build",
               "AppData", "Library", ".cache"}
 JUNK_FILES = {".DS_Store", "Thumbs.db"}
+SKILL_JUNK_DIRS = {".git", "__pycache__"}  # inside a skill only junk is skipped; build/ or dist/ may be real content
 MAX_FILE_BYTES = 2_000_000  # shortcut: big files are truncated before hashing, fine for skills, revisit if skills ship large assets
 
 
@@ -29,6 +30,7 @@ class Skill:
     shadowed_by: str | None = None
     plugin: tuple | None = None  # (name, version, plugin root) from the owning plugin's manifest
     duplicates: list = field(default_factory=list)  # other installs of the same plugin: (version, root)
+    executable: set = field(default_factory=set)  # files with an executable bit (POSIX only)
 
 
 def split_frontmatter(text):
@@ -53,9 +55,9 @@ def split_frontmatter(text):
 
 
 def load_skill(d: Path, scope: str) -> Skill:
-    files, warnings = {}, []
+    files, warnings, executable = {}, [], set()
     for root, dirs, names in os.walk(d):
-        dirs[:] = sorted(x for x in dirs if x not in PRUNE_DIRS)
+        dirs[:] = sorted(x for x in dirs if x not in SKILL_JUNK_DIRS)
         for n in sorted(names):
             if n in JUNK_FILES or n.endswith(".pyc"):
                 continue
@@ -66,14 +68,17 @@ def load_skill(d: Path, scope: str) -> Skill:
             except OSError as e:
                 warnings.append(f"cannot read {p}: {e.strerror}")
                 continue
+            rel = p.relative_to(d).as_posix()
             # Normalize line endings so a Windows checkout still matches upstream byte for byte.
-            files[p.relative_to(d).as_posix()] = data.replace(b"\r\n", b"\n")
+            files[rel] = data.replace(b"\r\n", b"\n")
+            if os.name == "posix" and os.stat(p).st_mode & 0o111:
+                executable.add(rel)
     text = files.get("SKILL.md", b"").decode("utf-8", "replace")
     fm, body, warn = split_frontmatter(text)
     if warn:
         warnings.append(warn)
     name = str(fm.get("name") or d.name)
-    return Skill(name, scope, d, fm, text, body, files, warnings)
+    return Skill(name, scope, d, fm, text, body, files, warnings, executable=executable)
 
 
 def plugin_manifest(skill_dir: Path):
@@ -94,6 +99,18 @@ def managed_dir() -> Path:
     if sys.platform == "win32":
         return Path(r"C:\Program Files\ClaudeCode")
     return Path("/etc/claude-code")
+
+
+def shell_disabled_by(home: Path):
+    """Settings file that sets disableSkillShellExecution, or None. Managed settings win over user settings."""
+    # shortcut: project .claude/settings.json can also set it per repo; not read, so project skills may be overrated
+    for f in (managed_dir() / "managed-settings.json", home / "settings.json"):
+        try:
+            if json.loads(f.read_text(encoding="utf-8")).get("disableSkillShellExecution") is True:
+                return f
+        except (OSError, ValueError, AttributeError):
+            continue
+    return None
 
 
 def _skill_dirs(base: Path, scope: str):
