@@ -36,6 +36,8 @@ def to_json(manifest, results):
     for s, lin, found in results:
         out.append({
             "name": s.name, "scope": s.scope, "path": str(s.path), "shadowed_by": s.shadowed_by,
+            "plugin": {"name": s.plugin[0], "version": s.plugin[1]} if s.plugin else None,
+            "duplicate_installs": [{"version": v, "path": str(r)} for v, r in s.duplicates],
             "warnings": s.warnings,
             "lineage": {
                 "state": lin.state,
@@ -82,6 +84,10 @@ def print_table(manifest, results, show_all):
         notes = []
         if new:
             notes.append(f"{new} finding{'s' * (new > 1)}" + (" added in fork" if lin.state == "modified" else ""))
+        for ver, root in s.duplicates:
+            pname, myver = s.plugin[0], s.plugin[1]
+            same = "same version" if ver == myver else f"v{myver} here, v{ver} there"
+            notes.append(f"plugin {pname} installed twice ({same}): also {short(root)}")
         if s.shadowed_by:
             notes.append(f"shadowed by {s.shadowed_by.split(':')[0]} copy")
         weaker = sorted({o.scope for o, _, _ in results if o.shadowed_by == f"{s.scope}:{s.path}"})

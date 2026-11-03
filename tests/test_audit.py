@@ -67,6 +67,15 @@ def test_personal_skill_shadows_project(demo, capsys):
     assert skills[("personal", "webapp-testing")]["shadowed_by"] is None
 
 
+def test_same_plugin_installed_twice(demo, capsys):
+    cli.main(["scan", "--home", str(demo / "home/.claude"), "--root", str(demo / "repo"), "--json"])
+    plugins = [s for s in json.loads(capsys.readouterr().out)["skills"] if s["scope"] == "plugin"]
+    assert sorted(s["plugin"]["version"] for s in plugins) == ["1.0.0", "1.1.0"]
+    for s in plugins:
+        (dup,) = s["duplicate_installs"]
+        assert dup["version"] != s["plugin"]["version"]
+
+
 def test_fail_on_exit_code(demo, capsys):
     assert run(demo, capsys, "--fail-on", "critical")[0] == 1
     empty = demo.parent / "empty"

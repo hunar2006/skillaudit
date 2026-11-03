@@ -8,13 +8,14 @@ Most skill scanners look at a skill in isolation, so they either flag Anthropic'
 $ python examples/build_demo.py demo
 $ skillaudit scan --home demo/home/.claude --root demo/repo
 
-skillaudit   catalog anthropics/skills@ca45fc4  |  7 skills found
+skillaudit   catalog anthropics/skills@ca45fc4  |  8 skills found
 
 SCOPE     SKILL                  LINEAGE                              RISK      WHERE                                                                                        NOTES
 personal  brand-guidelines       modified <- brand-guidelines 98.5%   CLEAN     demo/home/.claude/skills/brand-guidelines
 personal  release-notes          custom                               CLEAN     demo/home/.claude/skills/release-notes
 personal  webapp-testing         modified <- webapp-testing 99.8%     CRITICAL  demo/home/.claude/skills/webapp-testing                                                      6 findings added in fork; shadows project copy: bare /webapp-testing runs this one
-plugin    web-artifacts-builder  unmodified <- web-artifacts-builder  CLEAN     demo/home/.claude/plugins/cache/acme-market/frontend-kit/1.0.0/skills/web-artifacts-builder
+plugin    web-artifacts-builder  unmodified <- web-artifacts-builder  CLEAN     demo/home/.claude/plugins/cache/acme-market/frontend-kit/1.0.0/skills/web-artifacts-builder  plugin frontend-kit installed twice (v1.0.0 here, v1.1.0 there): also demo/home/.claude/plugins/synced/acct/frontend-kit
+plugin    web-artifacts-builder  unmodified <- web-artifacts-builder  CLEAN     demo/home/.claude/plugins/synced/acct/frontend-kit/skills/web-artifacts-builder              plugin frontend-kit installed twice (v1.1.0 here, v1.0.0 there): also demo/home/.claude/plugins/cache/acme-market/frontend-kit/1.0.0
 project   acme-brand             renamed <- brand-guidelines          CLEAN     demo/repo/.claude/skills/acme-brand
 project   aws-helper             custom                               CRITICAL  demo/repo/.claude/skills/aws-helper                                                          3 findings
 project   webapp-testing         unmodified <- webapp-testing         CLEAN     demo/repo/.claude/skills/webapp-testing                                                      shadowed by personal copy
@@ -61,7 +62,7 @@ Locations come from the [Claude Code skills docs](https://code.claude.com/docs/e
 | plugin | any `SKILL.md` under `~/.claude/plugins/`, skipping `marketplaces/` clones and hidden dirs |
 | project | `.claude/skills/` in each `--root`, every parent up to the git root (what Claude Code loads), and every nested `.claude/skills/` below it |
 
-`.trash/`, `node_modules`, `.git` are pruned. Symlinked skill folders are deduplicated by real path. Shadowing follows the documented precedence, managed over personal over project, and each shadowed copy says which one wins.
+`.trash/`, `node_modules`, `.git` are pruned. Symlinked skill folders are deduplicated by real path. Shadowing follows the documented precedence, managed over personal over project, and each shadowed copy says which one wins. A plugin found in two places under the same manifest name (`.claude-plugin/plugin.json`), such as a marketplace install plus a claude.ai sync, is flagged as installed twice, with both versions, since both copies load.
 
 ### 2. Catalog
 

@@ -1,4 +1,5 @@
 """Find Claude skills on this machine and load them into memory."""
+import json
 import os
 import sys
 from dataclasses import dataclass, field
@@ -26,6 +27,8 @@ class Skill:
     files: dict  # relative posix path -> bytes (CRLF normalized)
     warnings: list = field(default_factory=list)
     shadowed_by: str | None = None
+    plugin: tuple | None = None  # (name, version, plugin root) from the owning plugin's manifest
+    duplicates: list = field(default_factory=list)  # other installs of the same plugin: (version, root)
 
 
 def split_frontmatter(text):
@@ -71,6 +74,18 @@ def load_skill(d: Path, scope: str) -> Skill:
         warnings.append(warn)
     name = str(fm.get("name") or d.name)
     return Skill(name, scope, d, fm, text, body, files, warnings)
+
+
+def plugin_manifest(skill_dir: Path):
+    """(name, version, root) of the plugin that owns this skill, from .claude-plugin/plugin.json."""
+    for root in (skill_dir.parent.parent, skill_dir):  # <plugin>/skills/<name>/ or a root level SKILL.md
+        try:
+            d = json.loads((root / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if isinstance(d, dict) and d.get("name"):
+            return str(d["name"]), str(d.get("version") or "?"), root
+    return None
 
 
 def managed_dir() -> Path:
@@ -127,8 +142,12 @@ def discover(home: Path, roots) -> list[Skill]:
         if key in seen:
             continue
         seen.add(key)
-        skills.append(load_skill(d, scope))
+        skill = load_skill(d, scope)
+        if scope == "plugin":
+            skill.plugin = plugin_manifest(d)
+        skills.append(skill)
     _mark_shadowing(skills)
+    _mark_duplicate_installs(skills)
     return skills
 
 
@@ -140,3 +159,11 @@ def _mark_shadowing(skills):
         if stronger:
             w = min(stronger, key=lambda o: PRIORITY[o.scope])
             s.shadowed_by = f"{w.scope}:{w.path}"
+
+
+def _mark_duplicate_installs(skills):
+    """Same plugin (by manifest name) installed in more than one place, e.g. a marketplace copy and a claude.ai sync."""
+    for s in skills:
+        if s.plugin:
+            s.duplicates = [(o.plugin[1], o.plugin[2]) for o in skills
+                            if o is not s and o.plugin and o.plugin[0] == s.plugin[0] and o.name == s.name]
