@@ -1,0 +1,9 @@
+{
+  "repo": "https://github.com/anthropics/skills",
+  "sha": "ca45fc496a3436251f191354091d557da31c15b5",
+  "skills": [
+    "webapp-testing",
+    "brand-guidelines",
+    "web-artifacts-builder"
+  ]
+}
