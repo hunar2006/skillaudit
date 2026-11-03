@@ -1,0 +1,2 @@
+# Catalog bytes are hashed against upstream; never let git rewrite line endings.
+skillaudit/catalog/** -text

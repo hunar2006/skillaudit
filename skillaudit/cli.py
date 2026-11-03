@@ -145,6 +145,7 @@ def default_home():
 def main(argv=None):
     if hasattr(signal, "SIGPIPE"):  # quiet exit when piped into head/less
         signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+    sys.stdout.reconfigure(errors="replace")  # odd characters in a skill must not crash a cp1252 console
     p = argparse.ArgumentParser(prog="skillaudit", description=__doc__)
     sub = p.add_subparsers(dest="cmd", required=True)
     common = argparse.ArgumentParser(add_help=False)

@@ -17,14 +17,14 @@ def copy(src, dst):
 
 
 def edit(path, old, new):
-    text = path.read_text()
+    text = path.read_text(encoding="utf-8")
     assert old in text, f"{old!r} not in {path}"
-    path.write_text(text.replace(old, new, 1))
+    path.write_text(text.replace(old, new, 1), encoding="utf-8")
 
 
 def write(path, text):
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text)
+    path.write_text(text, encoding="utf-8")
 
 
 def build(out: Path):

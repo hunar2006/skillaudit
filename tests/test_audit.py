@@ -79,7 +79,7 @@ def test_crlf_and_junk_files_still_match(tmp_path):
     d = tmp_path / "brand-guidelines"
     shutil.copytree(CATALOG_DIR / "brand-guidelines", d)
     md = d / "SKILL.md"
-    md.write_bytes(md.read_bytes().replace(b"\n", b"\r\n"))
+    md.write_bytes(md.read_bytes().replace(b"\r\n", b"\n").replace(b"\n", b"\r\n"))
     (d / ".DS_Store").write_bytes(b"\0junk")
     _, catalog = load_catalog()
     assert correlate(load_skill(d, "personal"), catalog).state == "unmodified"
@@ -91,6 +91,6 @@ def test_frontmatter_edge_cases(tmp_path):
     assert fm == {} and "malformed" in warn
     d = tmp_path / "broken"
     d.mkdir()
-    (d / "SKILL.md").write_text("---\n: : :\n---\n# hi\n")
+    (d / "SKILL.md").write_text("---\n: : :\n---\n# hi\n", encoding="utf-8")
     s = load_skill(d, "personal")
     assert s.name == "broken" and s.warnings
