@@ -10,7 +10,7 @@ from pathlib import Path
 from . import discover, lineage, provenance, rules
 
 COLORS = {"critical": "1;31", "high": "31", "medium": "33", "low": "36", "clean": "32",
-          "unmodified": "32", "intact": "32", "renamed": "36", "modified": "33", "edited": "33",
+          "unmodified": "32", "intact": "32", "unverified": "36", "renamed": "36", "modified": "33", "edited": "33",
           "custom": "35", "dim": "2", "bold": "1"}
 USE_COLOR = sys.stdout.isatty() and not os.environ.get("NO_COLOR")
 
@@ -19,7 +19,7 @@ def c(text, style):
     return f"\033[{COLORS[style]}m{text}\033[0m" if USE_COLOR and style in COLORS else text
 
 
-def audit(home, roots):
+def audit(home, roots, online=False):
     """One record per skill: lineage (catalog), install record (lock file), findings, capabilities."""
     manifest, catalog = lineage.load_catalog()
     upstream_findings = {s.name: rules.scan(s) for s in catalog}
@@ -38,9 +38,12 @@ def audit(home, roots):
             found = [replace(f, severity="low", why=f"blocked by disableSkillShellExecution in {blocked_by}; {f.why}")
                      if f.rule == "SHELL_INJECTION" else f for f in found]
         caps = rules.capabilities(found)
+        install = provenance.check(s, lock)
+        if online and install and not install["intact"]:  # one GitHub call, only for skills that did not verify
+            install = provenance.verify_online(s, install)
         results.append({
             "skill": s, "lin": lin, "found": found,
-            "install": provenance.check(s, lock),
+            "install": install,
             "caps": caps, "gained": caps - upstream_caps if lin.upstream else set(),
             # opaque files byte identical to the Anthropic upstream are vouched for by lineage
             "unscanned": [f for f in rules.opaque_files(s) if f not in lin.unchanged],
@@ -100,7 +103,7 @@ def lineage_label(r):
     if lin.state != "custom":
         state, plain = lin.state, f"{lin.state} <- {lin.upstream.name}" + (f" {lin.similarity:.1%}" if lin.state == "modified" else "")
     elif inst:
-        state = "intact" if inst["intact"] else "edited"
+        state = inst["status"]
         plain = f"{state} <- {inst['source']}"
     else:
         state = plain = "custom"
@@ -119,8 +122,14 @@ def notes_of(r, results):
     notes = []
     if new:
         notes.append(f"{new} finding{'s' * (new > 1)}" + (" added in fork" if lin.state == "modified" else ""))
-    if inst and not inst["intact"]:
-        notes.append(f"changed since installed {(inst['installed_at'] or '?')[:10]}")
+    if inst and inst["status"] == "edited":
+        diff = inst.get("changed", []) + inst.get("added", []) + inst.get("removed", [])
+        notes.append(f"changed since installed {(inst['installed_at'] or '?')[:10]}"
+                     + (f": {', '.join(diff[:3])}" + (" ..." if len(diff) > 3 else "") if diff else ""))
+    if inst and inst["status"] == "unverified":
+        notes.append("line endings rewritten on checkout, cannot verify offline; rerun with --online")
+    if inst and inst.get("online_error"):
+        notes.append(f"online check failed: {inst['online_error']}")
     if r["unscanned"]:
         notes.append(f"not scanned: {', '.join(r['unscanned'][:2])}" + (" ..." if len(r["unscanned"]) > 2 else ""))
     for ver, root in s.duplicates:
@@ -138,12 +147,14 @@ def verdict(results):
     n = len(results)
     traced = sum(1 for r in results if r["lin"].state != "custom")
     installs = [r["install"] for r in results if r["install"] and r["lin"].state == "custom"]
-    edited = sum(1 for i in installs if not i["intact"])
+    edited = sum(1 for i in installs if i["status"] == "edited")
+    unverified = sum(1 for i in installs if i["status"] == "unverified")
     review = sum(1 for r in results if rules.SEVERITY.get(risk_of(r), -1) >= rules.SEVERITY["high"])
     parts = [f"{n} skills", f"{traced} trace to anthropics/skills"]
     if installs:
-        ok = len(installs) - edited
-        parts.append(f"{ok} install{'s' * (ok != 1)} verified intact" + (f", {edited} edited after install" if edited else ""))
+        ok = len(installs) - edited - unverified
+        parts.append(f"{ok} install{'s' * (ok != 1)} verified intact" + (f", {edited} edited after install" if edited else "")
+                     + (f", {unverified} unverified" if unverified else ""))
     parts.append(f"{n - traced - len(installs)} with no known origin")
     parts.append(c(f"{review} need review", "high") if review else c("nothing high or critical", "clean"))
     return "  |  ".join(parts)
@@ -198,9 +209,17 @@ def print_show(manifest, r):
     if s.shadowed_by:
         print(c(f"  shadowed by {s.shadowed_by}: a bare /{s.name} runs that copy instead", "high"))
     if inst:
-        state = "intact" if inst["intact"] else "edited"
+        state = inst["status"]
         print(f"  installed    {c(state, state)}: from {inst['source']} on {(inst['installed_at'] or '?')[:10]}"
-              f" (tree {inst['recorded_hash'][:10]}" + ("" if inst["intact"] else f", now {inst['local_hash'][:10]}") + ")")
+              f" (tree {inst['recorded_hash'][:10]}, checked {inst['verified']})")
+        for mark, key, style in (("~", "changed", "medium"), ("+", "added", "clean"), ("-", "removed", "critical")):
+            for rel in inst.get(key, []):
+                print(c(f"               {mark} {rel}", style))
+        if state == "unverified":
+            print(c("               line endings were rewritten on checkout and upstream commits some CRLF files,", "dim"))
+            print(c("               so offline hashes cannot decide; rerun with --online to compare file by file", "dim"))
+        if inst.get("online_error"):
+            print(c(f"               online check failed: {inst['online_error']}", "high"))
     if not lin.upstream:
         print(f"  lineage      {c('custom', 'custom')}: no catalog skill is similar enough")
     else:
@@ -249,6 +268,8 @@ def main(argv=None):
     common.add_argument("--root", action="append", type=Path,
                         help="project dir to search for .claude/skills, repeatable (default: cwd)")
     common.add_argument("--json", action="store_true", help="machine readable output")
+    common.add_argument("--online", action="store_true",
+                        help="for installs that do not verify offline, fetch the recorded tree from GitHub and compare file by file")
     scan_p = sub.add_parser("scan", parents=[common], help="inventory every skill with lineage and findings")
     scan_p.add_argument("--all", action="store_true", help="also list findings inherited from upstream")
     scan_p.add_argument("--fail-on", choices=list(rules.SEVERITY), help="exit 1 if a new finding is this severe or worse")
@@ -264,7 +285,7 @@ def main(argv=None):
             print(f"  {s.name:<24} {len(s.files):>3} files  license: {s.frontmatter.get('license', '?')}")
         return 0
 
-    manifest, results, blocked_by = audit(a.home.expanduser(), a.root or [Path.cwd()])
+    manifest, results, blocked_by = audit(a.home.expanduser(), a.root or [Path.cwd()], a.online)
 
     if a.cmd == "show":
         hits = [r for r in results if a.name in (r["skill"].name, r["skill"].path.name)]

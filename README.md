@@ -44,12 +44,13 @@ pip install .                      # Python 3.10+, one dependency (PyYAML)
 skillaudit scan                    # ~/.claude plus project skills under the current dir
 skillaudit scan --root ~/code      # search a tree of projects
 skillaudit show webapp-testing     # lineage card: install record, file and frontmatter delta, diff vs upstream
+skillaudit scan --online           # installs that do not verify offline: compare file by file with GitHub
 skillaudit scan --json             # stable schema for scripts
 skillaudit scan --fail-on high     # exit 1 on new high or critical findings (CI gate)
 skillaudit catalog                 # what the tool compares against
 ```
 
-Without installing: `python -m skillaudit scan`. Tests: `pip install pytest && pytest` (15 tests).
+Without installing: `python -m skillaudit scan`. Tests: `pip install pytest && pytest` (18 tests).
 
 ## How it works
 
@@ -90,6 +91,8 @@ Every file is hashed (SHA256, CRLF normalized) and compared with every catalog s
 
 **Install records.** `npx skills add` writes `~/.agents/.skill-lock.json`, and each entry stores `skillFolderHash`: the git tree SHA of the skill folder at the commit it was installed from ([vercel-labs/skills#283](https://github.com/vercel-labs/skills/issues/283)). skillaudit recomputes that tree hash locally (`provenance.py`, about 30 lines, no git needed) and reports **intact** or **edited** for any skill from any repo, offline. The implementation is checked against real `git rev-parse <commit>:<folder>` output, including executable scripts and a binary tarball (`test_tree_hash_matches_git`). Windows has no executable bit, so it also tries "files starting with `#!` are executable", which matches every executable in anthropics/skills.
 
+Three outcomes: **intact**, **edited**, or **unverified** (hashes differ but git rewrote line endings on checkout, so offline hashing cannot decide). With `--online`, skills that did not verify are compared file by file against the recorded tree on GitHub, ignoring line endings, and the changed, added and removed files are listed.
+
 The catalog explains *what* changed (file diff); the lock file proves *that* something changed for the long tail of skills the catalog will never contain.
 
 ### 3. Security: capability drift
@@ -123,7 +126,7 @@ This covers three items of the [OWASP Agentic Skills Top 10](https://owasp.org/w
 
 Run on a real Windows machine with 43 skills across personal, plugin and project scopes:
 
-* 10 skills installed with `npx skills add` from five different repos, all checked offline against the lock file. The first run reported **9 intact, 1 edited**. Tracing the "edit" to upstream commit `4762027` showed the skill was untouched: it ships files with CRLF line endings, and the tool normalized line endings before hashing while git hashes bytes as committed. Fix: hash the raw bytes and the normalized bytes (the latter covers a Windows checkout that rewrote line endings), plus a regression test (`test_install_with_crlf_files_is_intact`). Now **10 of 10 verified intact**.
+* 10 skills installed with `npx skills add` from five different repos, checked offline against the lock file: **9 intact, 1 "edited"**. The "edit" was traced, file by file, to upstream commit `4762027` of `cathrynlavery/diagram-design`, and nothing had been edited. Two things combined: upstream commits 7 files with CRLF line endings, and Git for Windows converted the other 279 text files from LF to CRLF on checkout. On disk every file now looks the same, so offline there is no way to know which were converted (2^n combinations). The tool now says **unverified** in that case instead of guessing "edited", and `--online` settles it by fetching the recorded tree's per file hashes from GitHub and comparing each file modulo line endings: **intact**. Regression tests reproduce the exact layout (`test_rewritten_line_endings_are_unverified_offline_and_intact_online`, `test_online_check_names_the_edited_file`).
 * The same plugin installed twice (marketplace v4.8.4, claude.ai sync v5.3.3), both loading.
 * A personal skill with malformed frontmatter, which Claude Code loads with empty metadata, so it never auto triggers.
 * The first version of the prose rules produced 4 findings, and all 4 were false positives ("never ask the user", a `# CLAUDE.md` heading, a `.env` mention in an upload policy). The rules were split into code versus markdown variants and the exact lines became a regression test (`test_real_world_prose_is_not_flagged`). After that, the real machine reports no findings, while every demo threat still fires.
@@ -143,7 +146,7 @@ examples/build_demo.py    sandbox with one skill per case; the tests use it too
 ## Limits
 
 * Rules are regex heuristics, not taint analysis. Obfuscated payloads get past them; the goal is to surface the obvious and make reviewing the rest cheap.
-* An edited install says *that* it changed, not *what* changed: showing the diff would mean fetching the source at the recorded tree, which this tool deliberately never does.
+* Offline, an edited install says *that* it changed, not *what*, and a Windows checkout of a repo that commits CRLF files can only be called unverified. `--online` answers both with one GitHub API call per skill that did not verify (unauthenticated, 60 calls an hour). Lock file values are validated before they reach the URL (plain `owner/repo`, 40 hex sha). Only GitHub sources are supported.
 * Catalog lineage only knows the pinned commit, so a copy of an older upstream commit looks like a light fork. Indexing historical tree hashes would fix it, using the same `tree_hash`.
 * Only the global skills lock is read; project lock files are not documented yet. Project `settings.json` is not read for the shell policy.
 * Claude Code's `installed_plugins.json` records a commit SHA per plugin, but it is known to go stale after updates, so it is not used as proof.
