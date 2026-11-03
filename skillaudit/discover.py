@@ -8,7 +8,9 @@ import yaml
 
 # Precedence from code.claude.com/docs/en/skills: enterprise > personal > project.
 PRIORITY = {"managed": 0, "personal": 1, "project": 2}
-PRUNE_DIRS = {".git", "node_modules", ".venv", "venv", "__pycache__", ".trash", ".tox", "dist", "build"}
+# AppData/Library/.cache: OS app data and temp dirs under home, never a project, and slow to walk.
+PRUNE_DIRS = {".git", "node_modules", ".venv", "venv", "__pycache__", ".trash", ".tox", "dist", "build",
+              "AppData", "Library", ".cache"}
 JUNK_FILES = {".DS_Store", "Thumbs.db"}
 MAX_FILE_BYTES = 2_000_000  # shortcut: big files are truncated before hashing, fine for skills, revisit if skills ship large assets
 
