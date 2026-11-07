@@ -78,7 +78,9 @@ RANK = {"unmodified": 3, "renamed": 2, "modified": 1, "custom": 0}
 def correlate(local: Skill, catalog) -> Lineage:
     best = max((compare(local, up) for up in catalog), key=lambda l: (RANK[l.state], l.similarity))
     if best.state == "custom":
+        # no lineage, so a diff against the nearest catalog skill would only mislead
         best.upstream = None
+        best.added, best.removed, best.changed, best.unchanged, best.frontmatter_changes = [], [], [], [], {}
     return best
 
 

@@ -37,7 +37,8 @@ LINE_RULES = [
      "dynamic context: Claude Code runs this shell command when the skill loads, before the model sees it"),
     ("DOWNLOAD_EXEC", "critical", "text",
      re.compile(r"\b(curl|wget|iwr|Invoke-WebRequest)\b[^|\n]*\|\s*(sudo\s+)?(ba|z|da)?sh\b"
-                r"|base64\s+(-d|--decode)[^|\n]*\|\s*(ba|z)?sh\b|\bexec\s*\(.*b64decode", re.I),
+                r"|base64\s+(-d|--decode)[^|\n]*\|\s*(ba|z)?sh\b|\bexec\s*\(.*b64decode"
+                r"|(\b(exec|eval)\s*\(|['\"](ba|z)?sh['\"]\s*,\s*['\"]-c['\"]).*\b(urlopen|requests\.get)\s*\(", re.I),
      "downloads or decodes code and executes it in one step"),
     ("NETWORK_CALL", "medium", "code",
      re.compile(r"\burllib\.request\.\w+\s*\(|\burlopen\s*\(|\brequests\.(get|post|put|patch)\s*\(|\bhttp\.client\b"

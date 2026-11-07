@@ -14,7 +14,7 @@ SCOPE     SKILL                  LINEAGE                              RISK      
 personal  brand-guidelines       modified <- brand-guidelines 98.5%   CLEAN     -
 personal  commit-helper          intact <- acme/agent-skills          CLEAN     -
 personal  standup-notes          edited <- acme/agent-skills          HIGH      deception secrets                    2 findings; changed since installed 2026-09-14
-personal  webapp-testing         modified <- webapp-testing 99.8%     CRITICAL  +autoapprove exec +network +secrets  7 findings added in fork; shadows project copy: bare /webapp-testing runs this one
+personal  webapp-testing         modified <- webapp-testing 99.8%     CRITICAL  +autoapprove exec +network +secrets  8 findings added in fork; shadows project copy: bare /webapp-testing runs this one
 plugin    web-artifacts-builder  unmodified <- web-artifacts-builder  CLEAN     -                                    plugin frontend-kit installed twice (v1.0.0 here, v1.1.0 there)
 project   acme-brand             renamed <- brand-guidelines          CLEAN     -
 project   aws-helper             custom                               CRITICAL  deception exec network secrets       5 findings
@@ -50,7 +50,7 @@ skillaudit scan --fail-on high     # exit 1 on new high or critical findings (CI
 skillaudit catalog                 # what the tool compares against
 ```
 
-Without installing: `python -m skillaudit scan`. Tests: `pip install pytest && pytest` (18 tests).
+Without installing: `python -m skillaudit scan`. Tests: `pip install pytest && pytest` (19 tests).
 
 ## How it works
 
@@ -102,7 +102,7 @@ Rules run on every skill. Each finding maps to a capability, and a reviewer reas
 | Rule | Severity | Capability | Catches |
 |---|---|---|---|
 | `SHELL_INJECTION` | critical | exec | `` !`cmd` `` or ` ```! ` in SKILL.md: runs when the skill loads, before the model can judge it ([docs](https://code.claude.com/docs/en/skills), [Datadog](https://securitylabs.datadoghq.com/articles/malicious-skills-supply-chain-risks-in-coding-agents-with-dynamic-context/)) |
-| `DOWNLOAD_EXEC` | critical | network, exec | `curl ... \| sh`, `base64 -d \| sh`, `exec(b64decode(...))` |
+| `DOWNLOAD_EXEC` | critical | network, exec | `curl ... \| sh`, `base64 -d \| sh`, `exec(b64decode(...))`, a fetched response passed to `sh -c`, `exec` or `eval` |
 | `BROAD_ALLOWED_TOOLS` | high | autoapprove | `Bash`, `Bash(*)`, `Write`, `Edit`, `WebFetch` in `allowed-tools`: no permission prompt, even in an untrusted repo |
 | `SKILL_HOOKS` | high | exec | `hooks:` in frontmatter |
 | `HIDDEN_UNICODE` | high | deception | zero width, bidi and tag characters, shown as `<U+200B>` |
