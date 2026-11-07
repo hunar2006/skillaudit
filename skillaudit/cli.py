@@ -205,7 +205,7 @@ def print_table(manifest, results, show_all, blocked_by):
 
 def print_show(manifest, r):
     s, lin, inst, found = r["skill"], r["lin"], r["install"], r["found"]
-    print(c(s.name, "bold"), c(f"({s.scope})", "dim"), s.path)
+    print(c(s.name, "bold"), c(f"({s.scope})", "dim"), short(s.path))
     if s.shadowed_by:
         print(c(f"  shadowed by {s.shadowed_by}: a bare /{s.name} runs that copy instead", "high"))
     if inst:

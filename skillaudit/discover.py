@@ -14,7 +14,7 @@ PRUNE_DIRS = {".git", "node_modules", ".venv", "venv", "__pycache__", ".trash", 
               "AppData", "Library", ".cache"}
 JUNK_FILES = {".DS_Store", "Thumbs.db"}
 SKILL_JUNK_DIRS = {".git", "__pycache__"}  # inside a skill only junk is skipped; build/ or dist/ may be real content
-MAX_FILE_BYTES = 2_000_000  # shortcut: big files are truncated before hashing, fine for skills, revisit if skills ship large assets
+MAX_FILE_BYTES = 2_000_000  # larger files are truncated before hashing; skills rarely ship anything this big
 
 
 @dataclass
@@ -105,7 +105,7 @@ def managed_dir() -> Path:
 
 def shell_disabled_by(home: Path):
     """Settings file that sets disableSkillShellExecution, or None. Managed settings win over user settings."""
-    # shortcut: project .claude/settings.json can also set it per repo; not read, so project skills may be overrated
+    # Project .claude/settings.json can also set it, but is not read, so project skills may be rated too high.
     for f in (managed_dir() / "managed-settings.json", home / "settings.json"):
         try:
             if json.loads(f.read_text(encoding="utf-8")).get("disableSkillShellExecution") is True:
@@ -145,8 +145,7 @@ def candidates(home: Path, roots):
     if plugins.is_dir():
         for md in sorted(plugins.rglob("SKILL.md")):
             parts = md.relative_to(plugins).parts
-            # shortcut: skips marketplaces/ (repo clones, not installed) and hidden dirs (.trash, other agents'
-            # copies like .openclaw/), revisit if Claude Code changes its plugin layout
+            # marketplaces/ holds repo clones, not installs; hidden dirs are .trash or other agents' copies.
             if "marketplaces" not in parts and not any(x.startswith(".") for x in parts):
                 yield md.parent, "plugin"
     for r in roots:

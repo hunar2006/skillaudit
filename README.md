@@ -10,15 +10,15 @@ $ skillaudit scan --home demo/home/.claude --root demo/repo
 
 skillaudit   catalog anthropics/skills@ca45fc4  |  dynamic context (!`cmd`) allowed
 
-SCOPE     SKILL                  LINEAGE                              RISK      CAPABILITIES                         NOTES
-personal  brand-guidelines       modified <- brand-guidelines 98.5%   CLEAN     -
-personal  commit-helper          intact <- acme/agent-skills          CLEAN     -
-personal  standup-notes          edited <- acme/agent-skills          HIGH      deception secrets                    2 findings; changed since installed 2026-09-14
-personal  webapp-testing         modified <- webapp-testing 99.8%     CRITICAL  +autoapprove exec +network +secrets  8 findings added in fork; shadows project copy: bare /webapp-testing runs this one
-plugin    web-artifacts-builder  unmodified <- web-artifacts-builder  CLEAN     -                                    plugin frontend-kit installed twice (v1.0.0 here, v1.1.0 there)
-project   acme-brand             renamed <- brand-guidelines          CLEAN     -
-project   aws-helper             custom                               CRITICAL  deception exec network secrets       5 findings
-project   webapp-testing         unmodified <- webapp-testing         CLEAN     exec                                 shadowed by personal copy
+SCOPE     SKILL                  LINEAGE                              RISK      CAPABILITIES                         WHERE                                                                                        NOTES
+personal  brand-guidelines       modified <- brand-guidelines 98.5%   CLEAN     -                                    demo/home/.claude/skills/brand-guidelines
+personal  commit-helper          intact <- acme/agent-skills          CLEAN     -                                    demo/home/.claude/skills/commit-helper
+personal  standup-notes          edited <- acme/agent-skills          HIGH      deception secrets                    demo/home/.claude/skills/standup-notes                                                       2 findings; changed since installed 2026-09-14
+personal  webapp-testing         modified <- webapp-testing 99.8%     CRITICAL  +autoapprove exec +network +secrets  demo/home/.claude/skills/webapp-testing                                                      8 findings added in fork; shadows project copy: bare /webapp-testing runs this one
+plugin    web-artifacts-builder  unmodified <- web-artifacts-builder  CLEAN     -                                    demo/home/.claude/plugins/cache/acme-market/frontend-kit/1.0.0/skills/web-artifacts-builder  plugin frontend-kit installed twice (v1.0.0 here, v1.1.0 there): also demo/home/.claude/plugins/synced/acct/frontend-kit
+project   acme-brand             renamed <- brand-guidelines          CLEAN     -                                    demo/repo/.claude/skills/acme-brand
+project   aws-helper             custom                               CRITICAL  deception exec network secrets       demo/repo/.claude/skills/aws-helper                                                          5 findings
+project   webapp-testing         unmodified <- webapp-testing         CLEAN     exec                                 demo/repo/.claude/skills/webapp-testing                                                      shadowed by personal copy
 ...
 FINDINGS  (only what is new relative to upstream; 4 inherited from upstream hidden, --all to show)
   CRITICAL  SHELL_INJECTION      demo/home/.claude/skills/webapp-testing/SKILL.md:10  [added in fork]

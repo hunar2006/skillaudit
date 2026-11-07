@@ -72,8 +72,7 @@ def check(skill, lock: dict):
     (2^n combinations), so the honest answer is "cannot tell"; --online settles it file by file.
     """
     entry = lock.get(skill.path.name)
-    # shortcut: only the global lock is read, so only personal skills get a record; project lock files
-    # (skills-lock.json) are not documented yet, add them when the skills CLI settles the format
+    # Only the global lock is read, so only personal skills get a record; the project lock format is not documented yet.
     if skill.scope != "personal" or not isinstance(entry, dict) or not entry.get("skillFolderHash"):
         return None
     local = candidate_hashes(skill)
